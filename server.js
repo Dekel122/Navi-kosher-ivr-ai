@@ -97,7 +97,18 @@ async function searchNearbyKosher(keyword, lat, lng, limit = 5) {
 }
 
 // עזר: בונה אובייקט הודעת טקסט לימות
-function txt(t) { return [{ type: 'text', data: t }]; }
+// מנקה תווים שימות לא מקבלת (גרשיים, סוגריים, תווים מיוחדים)
+function cleanText(t) {
+    return String(t)
+        .replace(/["'`]/g, '')        // גרשיים
+        .replace(/[<>]/g, ' ')         // סוגריים זוויתיים
+        .replace(/[{}]/g, ' ')         // סוגריים מסולסלים
+        .replace(/[\[\]]/g, ' ')      // סוגריים מרובעים
+        .replace(/[|\\^~&]/g, ' ')    // תווים מיוחדים
+        .replace(/\s+/g, ' ')          // רווחים כפולים
+        .trim();
+}
+function txt(t) { return [{ type: 'text', data: cleanText(t) }]; }
 
 // ============================================================
 // הראוטר של ימות
@@ -123,7 +134,7 @@ router.get('/', async (call) => {
                 'לזיהוי מיקומכם הקישו 4. לחנויות בדץ הקישו 5. למסלולי שטח הקישו 6. ' +
                 'לאטרקציות הקישו 7. לקמפינג ולינה הקישו 9.'),
             'tap',
-            { max_digits: 1, digits_allowed: [1, 2, 3, 4, 5, 6, 7, 9] }
+            { removeInvalidChars: true, max_digits: 1, digits_allowed: [1, 2, 3, 4, 5, 6, 7, 9] }
         );
 
         if (['1', '2', '3'].includes(mainChoice)) {
@@ -164,7 +175,7 @@ async function handleNavigation(call) {
             txt('להוראה הבאה הקישו 1. לחזרה על הפקודה הקישו 2. ' +
                 'לתיאור שטח הקישו 3. לחישוב מסלול מחדש הקישו 9. לסיום הקישו 0.'),
             'tap',
-            { max_digits: 1, digits_allowed: [0, 1, 2, 3, 9] }
+            { removeInvalidChars: true, max_digits: 1, digits_allowed: [0, 1, 2, 3, 9] }
         );
 
         if (navChoice === '1') {
@@ -195,14 +206,19 @@ async function getConfirmedAddress(call, label) {
         const method = await call.read(
             txt(`לקביעת ${label}: לכתובת מדויקת הקישו 1, לתיאור חופשי הקישו 2.`),
             'tap',
-            { max_digits: 1, digits_allowed: [1, 2] }
+            { removeInvalidChars: true, max_digits: 1, digits_allowed: [1, 2] }
         );
 
-        // קבלת הקלט בדיבור
+        // קבלת הקלט בהקלדה במקלדת עברית (כמו טלפון כשר: 2=אבג, 3=דהו...)
         const prompt = method === '1'
-            ? `אמרו את שם העיר והרחוב של ${label}.`
-            : `תארו במילים את ${label}.`;
-        const spoken = await call.read(txt(prompt), 'stt');
+            ? `הקלידו את שם העיר והרחוב של ${label}, באמצעות מקשי הטלפון. בסיום הקישו סולמית.`
+            : `הקלידו תיאור של ${label}, באמצעות מקשי הטלפון. בסיום הקישו סולמית.`;
+        const spoken = await call.read(txt(prompt), 'tap', {
+            removeInvalidChars: true,
+            typing_playback_mode: 'HebrewKeyboard',
+            max_digits: '*',
+            sec_wait: 20
+        });
 
         // פענוח מול גוגל
         const result = await parseAddressWithGoogle(spoken);
@@ -219,7 +235,7 @@ async function getConfirmedAddress(call, label) {
         const confirm = await call.read(
             txt(`זיהיתי את ${label}: ${result.formattedAddress}. לאישור הקישו 1, לתיקון הקישו 2.`),
             'tap',
-            { max_digits: 1, digits_allowed: [1, 2] }
+            { removeInvalidChars: true, max_digits: 1, digits_allowed: [1, 2] }
         );
 
         if (confirm === '1') {
@@ -236,8 +252,14 @@ async function getConfirmedAddress(call, label) {
 async function handleFreeLocation(call) {
     while (true) {
         const spoken = await call.read(
-            txt('תארו במילים מה אתם רואים סביבכם כעת, או איזה מבנה בולט לידכם.'),
-            'stt'
+            txt('הקלידו מה אתם רואים סביבכם כעת, או איזה מבנה בולט לידכם, באמצעות מקשי הטלפון. בסיום הקישו סולמית.'),
+            'tap',
+            {
+                removeInvalidChars: true,
+                typing_playback_mode: 'HebrewKeyboard',
+                max_digits: '*',
+                sec_wait: 20
+            }
         );
         const result = await parseAddressWithGoogle(spoken);
 
@@ -251,7 +273,7 @@ async function handleFreeLocation(call) {
             txt(`זיהינו את מיקומכם: ${result.formattedAddress}. ` +
                 'לניווט מכאן הקישו 1, לחזרה לתפריט הראשי הקישו 0.'),
             'tap',
-            { max_digits: 1, digits_allowed: [0, 1] }
+            { removeInvalidChars: true, max_digits: 1, digits_allowed: [0, 1] }
         );
 
         if (next === '1') {
@@ -275,7 +297,7 @@ async function handleStores(call) {
             'לביגוד 1. למאפיות 2. לקיוסקים 3. לתחנות דלק 4. לפארם 5. ' +
             'לספרי קודש 6. לכספומטים 7. למסעדות בדץ 8. לסופרמרקט 9.'),
         'tap',
-        { max_digits: 1, digits_allowed: [1, 2, 3, 4, 5, 6, 7, 8, 9] }
+        { removeInvalidChars: true, max_digits: 1, digits_allowed: [1, 2, 3, 4, 5, 6, 7, 8, 9] }
     );
 
     const cat = cats[choice];
@@ -289,7 +311,7 @@ async function handleStores(call) {
     const nav = await call.read(
         txt(`נמצאה חנות ${cat} כשרה בדץ באזורכם. לניווט לחנות הקישו 1, לחזרה לתפריט הקישו 0.`),
         'tap',
-        { max_digits: 1, digits_allowed: [0, 1] }
+        { removeInvalidChars: true, max_digits: 1, digits_allowed: [0, 1] }
     );
 
     if (nav === '1') {
@@ -305,7 +327,7 @@ async function handleTrails(call) {
         txt('מסלולי שטח וטיולים מסוננים לשומרי שבת. ' +
             'לג\'יפים הקישו 1, לאופניים הקישו 2, למסלול רגלי הקישו 3.'),
         'tap',
-        { max_digits: 1, digits_allowed: [1, 2, 3] }
+        { removeInvalidChars: true, max_digits: 1, digits_allowed: [1, 2, 3] }
     );
 
     if (!['1', '2', '3'].includes(choice)) return;
@@ -325,7 +347,7 @@ async function handleTrails(call) {
             txt('להוראה הבאה הקישו 1. לחזרה על הפקודה הקישו 2. ' +
                 'לתיאור שטח הקישו 3. לסיום בפתח המסלול הקישו 9.'),
             'tap',
-            { max_digits: 1, digits_allowed: [1, 2, 3, 9] }
+            { removeInvalidChars: true, max_digits: 1, digits_allowed: [1, 2, 3, 9] }
         );
 
         if (navChoice === '1') {
@@ -361,7 +383,7 @@ async function handleAttractions(call) {
             'לרייזרים ושטח הקישו 1, לחאנים ומאהלים הקישו 2, ' +
             'לבתי קפה בדץ הקישו 3, לפארקים ותצפיות הקישו 4.'),
         'tap',
-        { max_digits: 1, digits_allowed: [1, 2, 3, 4] }
+        { removeInvalidChars: true, max_digits: 1, digits_allowed: [1, 2, 3, 4] }
     );
 
     const attr = attrs[choice];
@@ -375,7 +397,7 @@ async function handleAttractions(call) {
     const nav = await call.read(
         txt(`נמצאה אטרקציה מסוג ${attr} בהפרדה מלאה. לניווט הקישו 1, לחזרה לתפריט הקישו 0.`),
         'tap',
-        { max_digits: 1, digits_allowed: [0, 1] }
+        { removeInvalidChars: true, max_digits: 1, digits_allowed: [0, 1] }
     );
 
     if (nav === '1') {
@@ -395,7 +417,7 @@ async function handleLodging(call) {
         txt('מתחמי לינה מוצנעים למשפחות. ' +
             'לקמפינג ואוהלים הקישו 1, לכפרי נופש הקישו 2, לאכסניות וחאנים הקישו 3.'),
         'tap',
-        { max_digits: 1, digits_allowed: [1, 2, 3] }
+        { removeInvalidChars: true, max_digits: 1, digits_allowed: [1, 2, 3] }
     );
 
     const type = types[choice];
@@ -421,7 +443,7 @@ async function handleLodging(call) {
             txt(`תוצאה ${index + 1}: ${results[index]}. ` +
                 'לניווט לכאן הקישו 1, לתוצאה הבאה הקישו 2, לחזרה לתפריט הקישו 0.'),
             'tap',
-            { max_digits: 1, digits_allowed: [0, 1, 2] }
+            { removeInvalidChars: true, max_digits: 1, digits_allowed: [0, 1, 2] }
         );
 
         if (nav === '1') {
