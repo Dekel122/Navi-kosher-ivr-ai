@@ -1,95 +1,37 @@
-const express = require('express');
-const axios   = require('axios');
-const app     = express();
+// ============================================================
+//  מרכז הניווט הכשר — שרת IVR לימות המשיח
+//  בנוי על ספריית yemot-router2 (הרשמית של ימות)
+// ============================================================
 
+const express = require('express');
+const axios = require('axios');
+const { YemotRouter } = require('yemot-router2');
+
+const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ============================================================
-// 🔑 מפתח Google — הכנס כאן את המפתח האמיתי שלך
+// 🔑 מפתח Google — נקרא ממשתנה סביבה ב-Render (בטוח)
+//    אם לא מוגדר, אפשר לשים ידנית במקום process.env.GOOGLE_MAPS_API_KEY
 // ============================================================
-const GOOGLE_MAPS_API_KEY = 'AIzaSyBhaz-PnSyoosRHxf_4hFXK0-zoj5nnIB4';
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || 'הכנס_מפתח_כאן';
 
-// ============================================================
-// 📝 MESSAGES — כל הטקסטים במקום אחד
-// ============================================================
-const MSG = {
-    WELCOME:
-        'ברוכים הבאים למרכז הניווט, הטיולים והמידע הכשר. ' +
-        'הקש: לניווט ברכב 1, באוטובוס 2, ברגל 3. ' +
-        'לזיהוי מיקומך 4. חנויות בדץ 5. מסלולי שטח 6. אטרקציות 7. קמפינג ולינה 9.',
-
-    MAIN_MENU_INVALID:
-        'לא הובן. הקש: ניווט 1-3, מיקום 4, חנויות 5, שטח 6, אטרקציות 7, לינה 9.',
-
-    CHOOSE_ORIGIN:    'לקביעת נקודת המוצא: לכתובת מדויקת עיר ורחוב הקש 1, לתיאור חופשי הקש 2.',
-    ORIGIN_EXACT:     'אנא אמרו או הקלידו את שם העיר והרחוב.',
-    ORIGIN_FREE:      'אנא תארו באריכות את המקום בו אתם עומדים.',
-    ORIGIN_CONFIRMED: 'נקודת המוצא אושרה. כעת לקביעת היעד: לכתובת מדויקת הקש 1, לתיאור חופשי הקש 2.',
-    ORIGIN_FIX:       'בסדר, נחזור. הקש 1 לכתובת מדויקת, 2 לתיאור חופשי.',
-
-    DEST_EXACT:       'אנא אמרו את עיר ויעד הנסיעה.',
-    DEST_FREE:        'אנא תארו במילים את אזור היעד.',
-    DEST_CONFIRMED:   'היעד אושר. מחשב מסלול ומייד מתחילים בהנחיות הניווט.',
-    DEST_FIX:         'בסדר, נחזור. הקש 1 לכתובת יעד, 2 לתיאור חופשי.',
-
-    GEO_TIMEOUT:      'השירות אינו זמין כרגע, אנא נסו שנית.',
-    GEO_NOT_FOUND:    'לא נמצאו תוצאות באזור. ננסה להגדיר מיקום אחר.',
-
-    NAV_HELP:         'הקש 1 להוראה הבאה, 2 לחזרה על הפקודה, 3 לתיאור שטח, 9 לחישוב מחדש.',
-    NAV_NEXT:         'מתקדמים להוראה הבאה במסלול.',
-    NAV_LOST:         'הלכתם לאיבוד? תארו במלל חופשי מה אתם רואים סביבכם ונחשב מסלול מחדש.',
-    TRAIL_ARRIVED:    'הגענו לפתח המסלול, הניווט מסתיים כאן. תיהנו! לחישוב מסלול חדש הקש 9.',
-
-    FREE_LOC_ASK:     'אנא תארו במילים מה אתם רואים סביבכם כעת.',
-    FREE_LOC_RETRY:   'לא הצלחנו לזהות את המיקום. נסו לתאר שוב.',
-    FREE_LOC_OPTIONS: 'לניווט מכאן הקש 1, לחזרה לתפריט הקש 0.',
-
-    STORES_MENU:
-        'חנויות ועסקים בכשרות בדץ מהדרין. הקש: 1 ביגוד, 2 מאפיות, 3 קיוסקים, ' +
-        '4 דלק, 5 פארם, 6 ספרי קודש, 7 כספומטים, 8 מסעדות בדץ, 9 סופרמרקט.',
-    STORES_INVALID:
-        'הקש: 1 ביגוד, 2 מאפיות, 3 קיוסקים, 4 דלק, 5 פארם, ' +
-        '6 ספרי קודש, 7 כספומטים, 8 מסעדות, 9 סופרמרקט.',
-    STORE_NAV:        'מגדירים ניווט לחנות. הקש 1 לכתובת מוצא, 2 לתיאור חופשי.',
-    STORE_NEXT:       'מחפש תוצאה נוספת. אנא המתינו.',
-
-    TRAIL_MENU:       "מסלולי שטח וטיולים מסוננים. לג'יפים הקש 1, לאופניים 2, למסלול רגלי 3.",
-    TRAIL_INVALID:    "לג'יפים הקש 1, לאופניים 2, למסלול רגלי 3.",
-    TRAIL_SAY_NAME:   'אנא אמרו את שם המסלול.',
-    TRAIL_FIX:        'בסדר, נחזור. אנא אמרו שוב את שם המסלול.',
-
-    ATTR_MENU:
-        'אטרקציות ובילויים שומרי שבת בהפרדה. ' +
-        'לרייזרים ושטח הקש 1, לחאנים ומאהלים 2, לבתי קפה בדץ 3, לפארקים ותצפיות 4.',
-    ATTR_INVALID:     'לרייזרים 1, חאנים 2, בתי קפה בדץ 3, פארקים 4.',
-    ATTR_NAV:         'מגדירים ניווט. הקש 1 לכתובת מוצא, 2 לתיאור חופשי.',
-
-    LODGING_MENU:     'מתחמי לינה מוצנעים למשפחות. לקמפינג ואוהלים הקש 1, לכפרי נופש 2, לאכסניות וחאנים 3.',
-    LODGING_INVALID:  'לקמפינג 1, כפרי נופש 2, אכסניות 3.',
-    LODGING_NAV:      'מגדירים ניווט למתחם הלינה. הקש 1 לכתובת מוצא, 2 לתיאור חופשי.',
-    LODGING_NONE:     'לא נמצאו מתחמי לינה נוספים בסביבה. חוזרים לתפריט הקודם.',
-
-    ERR_INTERNAL:     'שגיאה פנימית. אנא התקשרו שוב.',
-};
-
-// ============================================================
-// תיאורי שטח אקראיים — שלוחה 3 בניווט
-// ============================================================
-const FIELD_DESC = [
-    'חפשו מבנה בגובה 4-5 קומות, חזית אבן מסודרת וכניסה רחבה.',
-    'באזור זה יש כמות חניות גדולה על המדרכה, וסמוך אליה חנות נוחות או מאפייה.',
-    'חפשו מבנה מסחרי בן 2 קומות המכיל מספר חנויות ברצף (ביגוד או ספרי קודש).',
-    'הביטו סביב וחפשו שלט רחוב גדול או צומת עם תחנת אוטובוס קרובה.',
-];
-
-// ============================================================
-// axios עם timeout — בלי זה השרת יכול לקפוא לנצח
-// ============================================================
+// axios עם timeout כדי שהשרת לא ייתקע
 const httpClient = axios.create({ timeout: 5000 });
 
 // ============================================================
-// סינון כשרות + שבת + צניעות — לא שונה מהגרסה הקודמת
+// תיאורי שטח אקראיים (שלוחה 3 בניווט)
+// ============================================================
+const FIELD_DESC = [
+    'חפשו מבנה בגובה 4 עד 5 קומות, חזית אבן מסודרת וכניסה רחבה.',
+    'באזור זה יש כמות חניות גדולה על המדרכה, וסמוך אליה חנות נוחות או מאפייה.',
+    'חפשו מבנה מסחרי בן 2 קומות המכיל מספר חנויות ברצף, ביגוד או ספרי קודש.',
+    'הביטו סביב וחפשו שלט רחוב גדול או צומת עם תחנת אוטובוס קרובה.'
+];
+
+// ============================================================
+// סינון כשרות + שבת + צניעות
 // ============================================================
 function isKosherAndShabbatValid(place) {
     if (place.opening_hours && place.opening_hours.periods) {
@@ -104,12 +46,12 @@ function isKosherAndShabbatValid(place) {
     if (
         nameAndDetails.includes('hostel') ||
         nameAndDetails.includes('shared') ||
-        nameAndDetails.includes('dorm')   ||
+        nameAndDetails.includes('dorm') ||
         nameAndDetails.includes('מעורב')
     ) return false;
     const isFoodPlace =
         place.types?.includes('restaurant') ||
-        place.types?.includes('cafe')       ||
+        place.types?.includes('cafe') ||
         place.types?.includes('bakery');
     if (isFoodPlace) {
         const kosherKW = ['בדץ', 'בד"ץ', 'העדה החרדית', 'רובין', 'לנדא', 'בית יוסף', 'מהדרין'];
@@ -122,12 +64,12 @@ function isKosherAndShabbatValid(place) {
 // Google Geocoding — פענוח כתובת / תיאור חופשי
 // ============================================================
 async function parseAddressWithGoogle(textInput) {
-    if (!textInput || textInput.trim().length < 2)
+    if (!textInput || String(textInput).trim().length < 2)
         return { success: false, reason: 'SHORT_INPUT' };
     try {
         const r = await httpClient.get(
             'https://maps.googleapis.com/maps/api/geocode/json',
-            { params: { address: textInput.trim(), language: 'he', region: 'il', key: GOOGLE_MAPS_API_KEY } }
+            { params: { address: String(textInput).trim(), language: 'he', region: 'il', key: GOOGLE_MAPS_API_KEY } }
         );
         if (r.data.status === 'OK' && r.data.results.length > 0) {
             const top = r.data.results[0];
@@ -140,7 +82,7 @@ async function parseAddressWithGoogle(textInput) {
 }
 
 // ============================================================
-// Google Places — חיפוש עסקים / לינה כשרים בסביבה
+// Google Places — חיפוש עסקים כשרים בסביבה
 // ============================================================
 async function searchNearbyKosher(keyword, lat, lng, limit = 5) {
     try {
@@ -154,190 +96,357 @@ async function searchNearbyKosher(keyword, lat, lng, limit = 5) {
     } catch { return []; }
 }
 
-// ============================================================
-// עזר: תגובה אחידה + הודעת שגיאה גיאוקודינג
-// ============================================================
-function reply(res, text, nextStep, extra = '') {
-    return res.send(`read=t-${text}&target=ivr?step=${nextStep}${extra}`);
-}
-function geoError(reason) {
-    return reason === 'TIMEOUT' ? MSG.GEO_TIMEOUT : MSG.GEO_NOT_FOUND;
-}
+// עזר: בונה אובייקט הודעת טקסט לימות
+function txt(t) { return [{ type: 'text', data: t }]; }
 
 // ============================================================
-// IVR ROUTER
+// הראוטר של ימות
 // ============================================================
-app.all('/ivr', async (req, res) => {
-    const input  = (req.query.ApiDigits  || req.body.ApiDigits  || '').trim();
-    const step   = (req.query.step       || req.body.step       || 'INITIAL_START').trim();
-    const speech = (req.query.speechText || req.body.speechText || '').trim();
-
-    // ── פתיחה ──────────────────────────────────────────────────
-    if (step === 'INITIAL_START')
-        return reply(res, MSG.WELCOME, 'MAIN_MENU');
-
-    // ── תפריט ראשי ─────────────────────────────────────────────
-    if (step === 'MAIN_MENU') {
-        if (['1','2','3'].includes(input)) return reply(res, MSG.CHOOSE_ORIGIN, 'CHOOSE_ORIGIN_METHOD');
-        if (input === '4') return reply(res, MSG.FREE_LOC_ASK,  'PROCESSING_FREE_LOCATION');
-        if (input === '5') return reply(res, MSG.STORES_MENU,   'STORE_CATEGORY');
-        if (input === '6') return reply(res, MSG.TRAIL_MENU,    'TRAIL_TYPE');
-        if (input === '7') return reply(res, MSG.ATTR_MENU,     'ATTRACTION_CATEGORY');
-        if (input === '9') return reply(res, MSG.LODGING_MENU,  'LODGING_CATEGORY');
-        return reply(res, MSG.MAIN_MENU_INVALID, 'MAIN_MENU');
+const router = YemotRouter({
+    printLog: true,
+    timeout: 60000,
+    uncaughtErrorHandler: (err, call) => {
+        console.error('שגיאה בשיחה:', err);
+        try { call.id_list_message(txt('אירעה שגיאה זמנית. אנא התקשרו שוב.')); } catch {}
     }
-
-    // ── הגדרת מוצא ─────────────────────────────────────────────
-    if (step === 'CHOOSE_ORIGIN_METHOD')
-        return reply(res, input === '1' ? MSG.ORIGIN_EXACT : MSG.ORIGIN_FREE, 'PROCESSING_ORIGIN_INPUT');
-
-    if (step === 'PROCESSING_ORIGIN_INPUT') {
-        const r = await parseAddressWithGoogle(speech || input);
-        if (r.success)
-            return reply(res, `זיהיתי את נקודת המוצא: ${r.formattedAddress}. לאישור הקש 1, לתיקון הקש 2.`, 'CONFIRM_ORIGIN');
-        return reply(res, geoError(r.reason), 'CHOOSE_ORIGIN_METHOD');
-    }
-
-    if (step === 'CONFIRM_ORIGIN') {
-        if (input === '1') return reply(res, MSG.ORIGIN_CONFIRMED, 'CHOOSE_DESTINATION_METHOD');
-        return reply(res, MSG.ORIGIN_FIX, 'CHOOSE_ORIGIN_METHOD'); // 2 = חזרה שלב אחורה
-    }
-
-    // ── הגדרת יעד ──────────────────────────────────────────────
-    if (step === 'CHOOSE_DESTINATION_METHOD')
-        return reply(res, input === '1' ? MSG.DEST_EXACT : MSG.DEST_FREE, 'PROCESSING_DESTINATION_INPUT');
-
-    if (step === 'PROCESSING_DESTINATION_INPUT') {
-        const r = await parseAddressWithGoogle(speech || input);
-        if (r.success)
-            return reply(res, `זיהיתי את היעד: ${r.formattedAddress}. לאישור הקש 1, לתיקון הקש 2.`, 'CONFIRM_DESTINATION');
-        return reply(res, geoError(r.reason), 'CHOOSE_DESTINATION_METHOD');
-    }
-
-    if (step === 'CONFIRM_DESTINATION') {
-        if (input === '1') return reply(res, MSG.DEST_CONFIRMED, 'NAVIGATING');
-        return reply(res, MSG.DEST_FIX, 'CHOOSE_DESTINATION_METHOD'); // 2 = חזרה שלב אחורה
-    }
-
-    // ── ניווט פעיל ─────────────────────────────────────────────
-    if (step === 'NAVIGATING') {
-        const inst = 'פנו ימינה ברחוב חזון איש והמשיכו ישר 200 מטרים.';
-        if (input === '1') return reply(res, MSG.NAV_NEXT, 'NAVIGATING');
-        if (input === '2') return reply(res, `חזרה: ${inst}`, 'NAVIGATING');
-        if (input === '3') return reply(res, `תיאור שטח: ${FIELD_DESC[Math.floor(Math.random() * FIELD_DESC.length)]}`, 'NAVIGATING');
-        if (input === '9') return reply(res, MSG.NAV_LOST, 'PROCESSING_FREE_LOCATION');
-        return reply(res, MSG.NAV_HELP, 'NAVIGATING');
-    }
-
-    // ── זיהוי מיקום חופשי (שלוחה 4 + איבוד בניווט) ────────────
-    if (step === 'PROCESSING_FREE_LOCATION') {
-        const r = await parseAddressWithGoogle(speech || input);
-        if (r.success)
-            return reply(res, `זיהינו את מיקומכם: ${r.formattedAddress}. ${MSG.FREE_LOC_OPTIONS}`, 'FREE_LOCATION_RESULT');
-        return reply(res, MSG.FREE_LOC_RETRY, 'PROCESSING_FREE_LOCATION');
-    }
-
-    if (step === 'FREE_LOCATION_RESULT') {
-        if (input === '1') return reply(res, MSG.CHOOSE_ORIGIN, 'CHOOSE_ORIGIN_METHOD');
-        return reply(res, MSG.WELCOME, 'MAIN_MENU');
-    }
-
-    // ── שלוחה 6 — מסלולי שטח ──────────────────────────────────
-    if (step === 'TRAIL_TYPE') {
-        if (['1','2','3'].includes(input)) return reply(res, MSG.TRAIL_SAY_NAME, 'HIKING_INPUT');
-        return reply(res, MSG.TRAIL_INVALID, 'TRAIL_TYPE');
-    }
-
-    if (step === 'HIKING_INPUT') {
-        const r = await parseAddressWithGoogle(speech || input);
-        if (r.success)
-            return reply(res, `זיהיתי את המסלול: ${r.formattedAddress}. לאישור הקש 1, לתיקון הקש 2.`, 'CONFIRM_TRAIL');
-        return reply(res, geoError(r.reason), 'TRAIL_TYPE');
-    }
-
-    if (step === 'CONFIRM_TRAIL') {
-        if (input === '1') return reply(res, MSG.DEST_CONFIRMED, 'NAVIGATING_TRAIL');
-        return reply(res, MSG.TRAIL_FIX, 'HIKING_INPUT'); // 2 = חזרה שלב אחורה
-    }
-
-    // ניווט מסלול — מסתיים בפתח המסלול בלבד
-    if (step === 'NAVIGATING_TRAIL') {
-        const inst = 'המשיכו ישר לאורך השביל המסומן, 300 מטרים עד לפתח המסלול.';
-        if (input === '1') return reply(res, MSG.TRAIL_ARRIVED, 'MAIN_MENU');
-        if (input === '2') return reply(res, `חזרה: ${inst}`, 'NAVIGATING_TRAIL');
-        if (input === '3') return reply(res, `תיאור שטח: ${FIELD_DESC[Math.floor(Math.random() * FIELD_DESC.length)]}`, 'NAVIGATING_TRAIL');
-        if (input === '9') return reply(res, MSG.TRAIL_ARRIVED, 'MAIN_MENU');
-        return reply(res, MSG.NAV_HELP, 'NAVIGATING_TRAIL');
-    }
-
-    // ── שלוחה 5 — חנויות בד"ץ ─────────────────────────────────
-    if (step === 'STORE_CATEGORY') {
-        const cats = { '1':'ביגוד','2':'מאפיות','3':'קיוסקים','4':'דלק','5':'פארם','6':'ספרי קודש','7':'כספומטים','8':'מסעדות','9':'סופרמרקט' };
-        if (cats[input]) return reply(res, `מחפש ${cats[input]} כשר בד״ץ בסביבתכם. אנא המתינו.`, 'STORE_RESULT');
-        return reply(res, MSG.STORES_INVALID, 'STORE_CATEGORY');
-    }
-
-    if (step === 'STORE_RESULT') {
-        if (input === '1') return reply(res, MSG.STORE_NAV,  'CHOOSE_ORIGIN_METHOD');
-        if (input === '2') return reply(res, MSG.STORE_NEXT, 'STORE_RESULT');
-        return reply(res, MSG.STORES_MENU, 'STORE_CATEGORY');
-    }
-
-    // ── שלוחה 7 — אטרקציות ────────────────────────────────────
-    if (step === 'ATTRACTION_CATEGORY') {
-        const attrs = { '1':'רייזרים ושטח','2':'חאנים ומאהלים','3':'בתי קפה בדץ','4':'פארקים ותצפיות' };
-        if (attrs[input]) return reply(res, `מחפש ${attrs[input]} שומר שבת בסביבתכם. אנא המתינו.`, 'ATTRACTION_RESULT');
-        return reply(res, MSG.ATTR_INVALID, 'ATTRACTION_CATEGORY');
-    }
-
-    if (step === 'ATTRACTION_RESULT') {
-        if (input === '1') return reply(res, MSG.ATTR_NAV, 'CHOOSE_ORIGIN_METHOD');
-        return reply(res, MSG.ATTR_MENU, 'ATTRACTION_CATEGORY');
-    }
-
-    // ── שלוחה 9 — קמפינג ולינה — קריאת תוצאות ברצף ───────────
-    if (step === 'LODGING_CATEGORY') {
-        const types = { '1':'קמפינג ואוהלים','2':'כפרי נופש','3':'אכסניות וחאנים' };
-        if (types[input]) return reply(res, `סורק ${types[input]} מוצנעים בסביבתכם. אנא המתינו.`, 'LODGING_RESULT');
-        return reply(res, MSG.LODGING_INVALID, 'LODGING_CATEGORY');
-    }
-
-    if (step === 'LODGING_RESULT') {
-        // resultIndex עוקב אחרי מיקום בתוך רשימת התוצאות
-        const idx = parseInt(req.query.resultIndex || req.body.resultIndex || '0', 10);
-
-        // בפרודקשן: החלף את SAMPLE_RESULTS בתוצאות אמיתיות מ-searchNearbyKosher
-        const SAMPLE_RESULTS = [
-            'חניון הלילה נחל ערוגות — 5 ק״מ מכם',
-            'קמפינג ים המלח המשפחתי — 12 ק״מ מכם',
-            'כפר נופש עמק השרון — 18 ק״מ מכם',
-            'אכסניה בית שמש המשפחתית — 22 ק״מ מכם',
-            'חאן מצפה יריחו — 30 ק״מ מכם',
-        ];
-
-        if (input === '1')
-            return reply(res, MSG.LODGING_NAV, 'CHOOSE_ORIGIN_METHOD');
-
-        if (input === '2') {
-            const nextIdx = idx + 1;
-            if (nextIdx < SAMPLE_RESULTS.length) {
-                return res.send(
-                    `read=t-מצאתי: ${SAMPLE_RESULTS[nextIdx]}. לניווט לכאן הקש 1, לתוצאה הבאה הקש 2, לחזרה הקש 0.` +
-                    `&target=ivr?step=LODGING_RESULT&resultIndex=${nextIdx}`
-                );
-            }
-            return reply(res, MSG.LODGING_NONE, 'LODGING_CATEGORY');
-        }
-
-        // 0 / אחר — חזרה לתפריט
-        return reply(res, MSG.LODGING_MENU, 'LODGING_CATEGORY');
-    }
-
-    // ── שלב לא מזוהה — מניעת קריסה ───────────────────────────
-    return reply(res, MSG.ERR_INTERNAL, 'INITIAL_START');
 });
 
 // ============================================================
+// השלוחה הראשית — כל הזרימה
+// ============================================================
+router.get('/', async (call) => {
+    while (true) {
+        // ===== תפריט ראשי =====
+        const mainChoice = await call.read(
+            txt('ברוכים הבאים למרכז הניווט, הטיולים והמידע הכשר. ' +
+                'לניווט ברכב הקישו 1. לניווט באוטובוס הקישו 2. לניווט ברגל הקישו 3. ' +
+                'לזיהוי מיקומכם הקישו 4. לחנויות בדץ הקישו 5. למסלולי שטח הקישו 6. ' +
+                'לאטרקציות הקישו 7. לקמפינג ולינה הקישו 9.'),
+            'tap',
+            { max_digits: 1, digits_allowed: [1, 2, 3, 4, 5, 6, 7, 9] }
+        );
+
+        if (['1', '2', '3'].includes(mainChoice)) {
+            await handleNavigation(call);
+        } else if (mainChoice === '4') {
+            await handleFreeLocation(call);
+        } else if (mainChoice === '5') {
+            await handleStores(call);
+        } else if (mainChoice === '6') {
+            await handleTrails(call);
+        } else if (mainChoice === '7') {
+            await handleAttractions(call);
+        } else if (mainChoice === '9') {
+            await handleLodging(call);
+        }
+        // הלולאה חוזרת לתפריט הראשי
+    }
+});
+
+// ============================================================
+// ניווט (שלוחות 1, 2, 3)
+// ============================================================
+async function handleNavigation(call) {
+    // נקודת מוצא
+    const origin = await getConfirmedAddress(call, 'נקודת המוצא');
+    if (!origin) return;
+
+    // יעד
+    const dest = await getConfirmedAddress(call, 'היעד');
+    if (!dest) return;
+
+    await call.id_list_message(txt('היעד אושר. מחשב מסלול ומתחילים בהנחיות הניווט.'),
+        { prependToNextAction: true });
+
+    // ניווט פעיל
+    while (true) {
+        const navChoice = await call.read(
+            txt('להוראה הבאה הקישו 1. לחזרה על הפקודה הקישו 2. ' +
+                'לתיאור שטח הקישו 3. לחישוב מסלול מחדש הקישו 9. לסיום הקישו 0.'),
+            'tap',
+            { max_digits: 1, digits_allowed: [0, 1, 2, 3, 9] }
+        );
+
+        if (navChoice === '1') {
+            await call.id_list_message(txt('מתקדמים להוראה הבאה. פנו ימינה ברחוב חזון איש והמשיכו ישר 200 מטרים.'),
+                { prependToNextAction: true });
+        } else if (navChoice === '2') {
+            await call.id_list_message(txt('חזרה על הפקודה. פנו ימינה ברחוב חזון איש והמשיכו ישר 200 מטרים.'),
+                { prependToNextAction: true });
+        } else if (navChoice === '3') {
+            const d = FIELD_DESC[Math.floor(Math.random() * FIELD_DESC.length)];
+            await call.id_list_message(txt('תיאור שטח: ' + d), { prependToNextAction: true });
+        } else if (navChoice === '9') {
+            await handleFreeLocation(call);
+            return;
+        } else if (navChoice === '0') {
+            await call.id_list_message(txt('הניווט הסתיים. נסיעה טובה!'), { prependToNextAction: true });
+            return;
+        }
+    }
+}
+
+// ============================================================
+// עזר: קבלת כתובת + אימות (לאישור 1, לתיקון 2)
+// ============================================================
+async function getConfirmedAddress(call, label) {
+    while (true) {
+        // בחירת שיטה
+        const method = await call.read(
+            txt(`לקביעת ${label}: לכתובת מדויקת הקישו 1, לתיאור חופשי הקישו 2.`),
+            'tap',
+            { max_digits: 1, digits_allowed: [1, 2] }
+        );
+
+        // קבלת הקלט בדיבור
+        const prompt = method === '1'
+            ? `אמרו את שם העיר והרחוב של ${label}.`
+            : `תארו במילים את ${label}.`;
+        const spoken = await call.read(txt(prompt), 'stt');
+
+        // פענוח מול גוגל
+        const result = await parseAddressWithGoogle(spoken);
+
+        if (!result.success) {
+            const msg = result.reason === 'TIMEOUT'
+                ? 'השירות אינו זמין כרגע, אנא נסו שנית.'
+                : 'לא נמצאו תוצאות באזור. ננסה להגדיר מיקום אחר.';
+            await call.id_list_message(txt(msg), { prependToNextAction: true });
+            continue; // חזרה לבחירת שיטה
+        }
+
+        // אימות
+        const confirm = await call.read(
+            txt(`זיהיתי את ${label}: ${result.formattedAddress}. לאישור הקישו 1, לתיקון הקישו 2.`),
+            'tap',
+            { max_digits: 1, digits_allowed: [1, 2] }
+        );
+
+        if (confirm === '1') {
+            return result; // אושר
+        }
+        // אם 2 — הלולאה חוזרת אחורה אוטומטית
+        await call.id_list_message(txt('בסדר, נגדיר מחדש.'), { prependToNextAction: true });
+    }
+}
+
+// ============================================================
+// זיהוי מיקום חופשי (שלוחה 4)
+// ============================================================
+async function handleFreeLocation(call) {
+    while (true) {
+        const spoken = await call.read(
+            txt('תארו במילים מה אתם רואים סביבכם כעת, או איזה מבנה בולט לידכם.'),
+            'stt'
+        );
+        const result = await parseAddressWithGoogle(spoken);
+
+        if (!result.success) {
+            await call.id_list_message(txt('לא הצלחנו לזהות את המיקום. נסו לתאר שוב.'),
+                { prependToNextAction: true });
+            continue;
+        }
+
+        const next = await call.read(
+            txt(`זיהינו את מיקומכם: ${result.formattedAddress}. ` +
+                'לניווט מכאן הקישו 1, לחזרה לתפריט הראשי הקישו 0.'),
+            'tap',
+            { max_digits: 1, digits_allowed: [0, 1] }
+        );
+
+        if (next === '1') {
+            await handleNavigation(call);
+        }
+        return; // חזרה לתפריט הראשי
+    }
+}
+
+// ============================================================
+// חנויות בדץ (שלוחה 5)
+// ============================================================
+async function handleStores(call) {
+    const cats = {
+        '1': 'ביגוד', '2': 'מאפיות', '3': 'קיוסקים', '4': 'תחנות דלק', '5': 'פארם',
+        '6': 'ספרי קודש', '7': 'כספומטים', '8': 'מסעדות בדץ', '9': 'סופרמרקט'
+    };
+
+    const choice = await call.read(
+        txt('חנויות ועסקים בכשרות בדץ מהדרין. ' +
+            'לביגוד 1. למאפיות 2. לקיוסקים 3. לתחנות דלק 4. לפארם 5. ' +
+            'לספרי קודש 6. לכספומטים 7. למסעדות בדץ 8. לסופרמרקט 9.'),
+        'tap',
+        { max_digits: 1, digits_allowed: [1, 2, 3, 4, 5, 6, 7, 8, 9] }
+    );
+
+    const cat = cats[choice];
+    if (!cat) return;
+
+    await call.id_list_message(
+        txt(`מחפש ${cat} כשר בדץ בסביבתכם. אנא המתינו.`),
+        { prependToNextAction: true }
+    );
+
+    const nav = await call.read(
+        txt(`נמצאה חנות ${cat} כשרה בדץ באזורכם. לניווט לחנות הקישו 1, לחזרה לתפריט הקישו 0.`),
+        'tap',
+        { max_digits: 1, digits_allowed: [0, 1] }
+    );
+
+    if (nav === '1') {
+        await handleNavigation(call);
+    }
+}
+
+// ============================================================
+// מסלולי שטח (שלוחה 6) — ניווט עד פתח המסלול בלבד
+// ============================================================
+async function handleTrails(call) {
+    const choice = await call.read(
+        txt('מסלולי שטח וטיולים מסוננים לשומרי שבת. ' +
+            'לג\'יפים הקישו 1, לאופניים הקישו 2, למסלול רגלי הקישו 3.'),
+        'tap',
+        { max_digits: 1, digits_allowed: [1, 2, 3] }
+    );
+
+    if (!['1', '2', '3'].includes(choice)) return;
+
+    // שם המסלול בדיבור
+    const trail = await getConfirmedAddress(call, 'פתח המסלול');
+    if (!trail) return;
+
+    await call.id_list_message(
+        txt('מתחילים בניווט לפתח המסלול.'),
+        { prependToNextAction: true }
+    );
+
+    // ניווט עד פתח המסלול
+    while (true) {
+        const navChoice = await call.read(
+            txt('להוראה הבאה הקישו 1. לחזרה על הפקודה הקישו 2. ' +
+                'לתיאור שטח הקישו 3. לסיום בפתח המסלול הקישו 9.'),
+            'tap',
+            { max_digits: 1, digits_allowed: [1, 2, 3, 9] }
+        );
+
+        if (navChoice === '1') {
+            await call.id_list_message(
+                txt('המשיכו ישר לאורך השביל המסומן, 300 מטרים עד לפתח המסלול.'),
+                { prependToNextAction: true });
+        } else if (navChoice === '2') {
+            await call.id_list_message(
+                txt('חזרה על הפקודה. המשיכו ישר לאורך השביל המסומן עד לפתח המסלול.'),
+                { prependToNextAction: true });
+        } else if (navChoice === '3') {
+            const d = FIELD_DESC[Math.floor(Math.random() * FIELD_DESC.length)];
+            await call.id_list_message(txt('תיאור שטח: ' + d), { prependToNextAction: true });
+        } else if (navChoice === '9') {
+            await call.id_list_message(
+                txt('הגענו לפתח המסלול. הניווט מסתיים כאן. תיהנו מהטיול!'),
+                { prependToNextAction: true });
+            return;
+        }
+    }
+}
+
+// ============================================================
+// אטרקציות (שלוחה 7)
+// ============================================================
+async function handleAttractions(call) {
+    const attrs = {
+        '1': 'רייזרים ושטח', '2': 'חאנים ומאהלים', '3': 'בתי קפה בדץ', '4': 'פארקים ותצפיות'
+    };
+
+    const choice = await call.read(
+        txt('אטרקציות ובילויים שומרי שבת בהפרדה. ' +
+            'לרייזרים ושטח הקישו 1, לחאנים ומאהלים הקישו 2, ' +
+            'לבתי קפה בדץ הקישו 3, לפארקים ותצפיות הקישו 4.'),
+        'tap',
+        { max_digits: 1, digits_allowed: [1, 2, 3, 4] }
+    );
+
+    const attr = attrs[choice];
+    if (!attr) return;
+
+    await call.id_list_message(
+        txt(`מחפש ${attr} שומר שבת בסביבתכם. אנא המתינו.`),
+        { prependToNextAction: true }
+    );
+
+    const nav = await call.read(
+        txt(`נמצאה אטרקציה מסוג ${attr} בהפרדה מלאה. לניווט הקישו 1, לחזרה לתפריט הקישו 0.`),
+        'tap',
+        { max_digits: 1, digits_allowed: [0, 1] }
+    );
+
+    if (nav === '1') {
+        await handleNavigation(call);
+    }
+}
+
+// ============================================================
+// קמפינג ולינה (שלוחה 9) — הקראת כל התוצאות ברצף
+// ============================================================
+async function handleLodging(call) {
+    const types = {
+        '1': 'קמפינג ואוהלים', '2': 'כפרי נופש', '3': 'אכסניות וחאנים'
+    };
+
+    const choice = await call.read(
+        txt('מתחמי לינה מוצנעים למשפחות. ' +
+            'לקמפינג ואוהלים הקישו 1, לכפרי נופש הקישו 2, לאכסניות וחאנים הקישו 3.'),
+        'tap',
+        { max_digits: 1, digits_allowed: [1, 2, 3] }
+    );
+
+    const type = types[choice];
+    if (!type) return;
+
+    await call.id_list_message(
+        txt(`סורק ${type} מוצנעים בסביבתכם. אנא המתינו.`),
+        { prependToNextAction: true }
+    );
+
+    // רשימת תוצאות לדוגמה — בפרודקשן תוחלף ב-searchNearbyKosher
+    const results = [
+        'חניון הלילה נחל ערוגות, 5 קילומטר מכם',
+        'קמפינג ים המלח המשפחתי, 12 קילומטר מכם',
+        'כפר נופש עמק השרון, 18 קילומטר מכם',
+        'אכסניית בית שמש המשפחתית, 22 קילומטר מכם'
+    ];
+
+    // הקראת כל התוצאות ברצף
+    let index = 0;
+    while (index < results.length) {
+        const nav = await call.read(
+            txt(`תוצאה ${index + 1}: ${results[index]}. ` +
+                'לניווט לכאן הקישו 1, לתוצאה הבאה הקישו 2, לחזרה לתפריט הקישו 0.'),
+            'tap',
+            { max_digits: 1, digits_allowed: [0, 1, 2] }
+        );
+
+        if (nav === '1') {
+            await handleNavigation(call);
+            return;
+        } else if (nav === '2') {
+            index++;
+            if (index >= results.length) {
+                await call.id_list_message(
+                    txt('לא נמצאו מתחמי לינה נוספים בסביבה. חוזרים לתפריט.'),
+                    { prependToNextAction: true });
+                return;
+            }
+        } else if (nav === '0') {
+            return;
+        }
+    }
+}
+
+// ============================================================
+// חיבור הראוטר ל-express
+// ============================================================
+app.use('/ivr', router);
+
+// בדיקת חיים
 app.get('/health', (req, res) => res.send('השרת חי ובועט!'));
 
 const PORT = process.env.PORT || 3000;
@@ -345,7 +454,10 @@ app.listen(PORT, () => {
     console.log('');
     console.log('=========================================');
     console.log(`  ✅  השרת רץ על פורט ${PORT}`);
-    console.log(`  🌐  http://localhost:${PORT}/ivr`);
-    console.log(`  ❤️   http://localhost:${PORT}/health`);
+    console.log(`  📞  שלוחת IVR: /ivr`);
+    console.log(`  ❤️   בריאות: /health`);
     console.log('=========================================');
+    if (GOOGLE_MAPS_API_KEY === 'הכנס_מפתח_כאן') {
+        console.log('  ⚠️  שים לב: לא הוגדר מפתח Google!');
+    }
 });
