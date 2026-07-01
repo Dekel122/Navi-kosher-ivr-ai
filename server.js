@@ -1,22 +1,29 @@
 const express = require('express');
-const { YemotRouter } = require('yemot-router2');
-
 const app = express();
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const router = YemotRouter({ printLog: true });
+function handleYemot(req, res) {
+    console.log('=== בקשה מימות ===');
+    console.log('Method:', req.method);
+    console.log('Query:', JSON.stringify(req.query));
+    console.log('Body:', JSON.stringify(req.body));
 
-router.get('/', async (call) => {
-    return call.id_list_message([
-        { type: 'text', data: 'שלום עולם זאת בדיקה' }
-    ]);
-});
+    const response = 'id_list_message=t-שלום עולם זאת בדיקה ידנית';
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.send(response);
+}
 
-app.use('/ivr', router);
+app.get('/ivr', handleYemot);
+app.post('/ivr', handleYemot);
+app.get('/ivr/', handleYemot);
+app.post('/ivr/', handleYemot);
+
 app.get('/health', (req, res) => res.send('השרת חי ובועט!'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`✅ שרת ניסוי אבחון רץ על פורט ${PORT}`);
+    console.log(`✅ שרת ניסוי ידני רץ על פורט ${PORT}`);
+    console.log(`📞 מאזין ל: /ivr (GET + POST)`);
 });
